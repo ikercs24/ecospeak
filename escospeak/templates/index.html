@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoSpeak — Acción Climática</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="card">
+        <h1>🎙️ EcoSpeak</h1>
+        <p class="subtitle">Aprende inglés para la acción climática</p>
+
+        <div id="pantalla-inicio">
+            <label for="dificultad">Selecciona Dificultad:</label>
+            <select id="dificultad">
+                <option value="facil">Fácil 🟢</option>
+                <option value="medio">Medio 🟡</option>
+                <option value="dificil">Difícil 🔴</option>
+            </select>
+            <button onclick="iniciarJuego()">Iniciar Juego</button>
+        </div>
+
+        <div id="pantalla-juego" style="display: none;">
+            <div class="stats">
+                <span>Puntos: <strong id="puntos">0</strong></span>
+                <span>Vidas: <strong id="vidas">❤️❤️❤️</strong></span>
+            </div>
+            
+            <div class="word-box">
+                <p>Pronuncia en inglés:</p>
+                <h2 id="palabra-actual">...</h2>
+            </div>
+
+            <button id="btn-grabar" onclick="grabarVoz()">🎙️️ Presiona para Grabar</button>
+            <p id="estado"></p>
+            <div id="resultado"></div>
+            <button id="btn-siguiente" onclick="cargarPalabra()" style="display:none; margin-top: 15px;">Siguiente Palabra ➡️</button>
+        </div>
+    </div>
+
+    <script>
+        let palabraEsperada = "";
+        let puntos = 0;
+        let vidas = 3;
+
+        async function iniciarJuego() {
+            document.getElementById("pantalla-inicio").style.display = "none";
+            document.getElementById("pantalla-juego").style.display = "block";
+            await cargarPalabra();
+        }
+
+        async function cargarPalabra() {
+            document.getElementById("btn-siguiente").style.display = "none";
+            document.getElementById("resultado").innerText = "";
+            document.getElementById("estado").innerText = "";
+            
+            const dif = document.getElementById("dificultad").value;
+            const res = await fetch('/obtener_palabra', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({dificultad: dif})
+            });
+            const data = await res.json();
+            
+            document.getElementById("palabra-actual").innerText = data.palabra;
+            palabraEsperada = data.traduccion;
+        }
+
+        async function grabarVoz() {
+            const btn = document.getElementById("btn-grabar");
+            const estado = document.getElementById("estado");
+            btn.disabled = true;
+            estado.innerText = "🔴 Grabando 3 segundos...";
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            let chunks = [];
+
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                estado.innerText = "⚙️ Procesando voz...";
+                const blob = new Blob(chunks, { type: 'audio/wav' });
+                const reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = async () => {
+                    const base64Audio = reader.result;
+                    const res = await fetch('/evaluar_audio', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({audio: base64Audio, traduccion: palabraEsperada})
+                    });
+                    const data = await res.json();
+                    
+                    if (data.correcto) {
+                        puntos += 10;
+                        document.getElementById("resultado").innerHTML = `<p style="color:green;">¡Correcto! 🎉 Dijiste: '${data.reconocido}'</p>`;
+                    } else {
+                        vidas -= 1;
+                        document.getElementById("resultado").innerHTML = `<p style="color:red;">Incorrecto ❌ Dijiste: '${data.reconocido || 'sin audio'}'. Era: '${data.esperado}'</p>`;
+                    }
+
+                    document.getElementById("puntos").innerText = puntos;
+                    document.getElementById("vidas").innerText = "❤️".repeat(vidas);
+                    btn.disabled = false;
+                    estado.innerText = "";
+
+                    if (vidas > 0) {
+                        document.getElementById("btn-siguiente").style.display = "inline-block";
+                    } else {
+                        alert("¡Juego terminado!");
+                        location.reload();
+                    }
+                };
+            };
+
+            mediaRecorder.start();
+            setTimeout(() => mediaRecorder.stop(), 3000);
+        }
+    </script>
+</body>
+</html>
